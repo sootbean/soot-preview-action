@@ -1,0 +1,85 @@
+name: SootBean
+description: SootBean PR previews + branch builds for this repo. Auto-dispatches based on the event.
+author: SootBean
+
+# usage:
+#
+#   - uses: sootbean/soot/actions/soot-preview@main
+#     with:
+#       start: pnpm dev:all:lite   # whatever command boots your app
+#
+# behavior:
+#   - on pull_request: runs the interactive sootbean preview agent (LLM-gated)
+#   - on push to a tracked branch: runs the branch-build pipeline for every
+#     enabled platform; result lands at /build/<owner>/<repo>/<branch>
+#   - other events are ignored
+#
+# the runner script handles waiting for the dev server to come up — do NOT
+# add a "wait for ready" step in your workflow. it also derives the github
+# repo id + installation id from the (owner, repo) tuple, so no repo vars
+# are needed.
+
+branding:
+  icon: zap
+  color: orange
+
+inputs:
+  start:
+    description: Command that boots the app dev server in the background (e.g. "pnpm dev:all:lite"). Leave blank if your app is already up by the time this action runs.
+    required: false
+    default: ''
+  port:
+    description: Port the dev server listens on. Defaults to 8081 (metro/expo).
+    required: false
+    default: '8081'
+  node-version:
+    description: Node.js version to install
+    required: false
+    default: '24'
+  pnpm-version:
+    description: pnpm version to install
+    required: false
+    default: '10'
+  origin:
+    description: Override the SootBean cloud origin (defaults to https://sootbean.com).
+    required: false
+    default: 'https://sootbean.com'
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: ${{ inputs.pnpm-version }}
+
+    - uses: actions/setup-node@v5
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
+
+    - name: SootBean preview / build
+      shell: bash
+      env:
+        # the soot runner reads everything from env. nothing here is secret
+        # apart from GITHUB_TOKEN (auto-injected, repo-scoped).
+        SOOT_INSTALLATION_TOKEN: ${{ github.token }}
+        SOOT_REPO: ${{ github.repository }}
+        SOOT_REPO_ID: ${{ github.event.repository.id }}
+        SOOT_EVENT_NAME: ${{ github.event_name }}
+        SOOT_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        SOOT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        SOOT_RUN_ID: ${{ github.run_id }}
+        SOOT_RUN_ATTEMPT: ${{ github.run_attempt }}
+        SOOT_PR_NUMBER: ${{ github.event.pull_request.number }}
+        SOOT_PR_TITLE: ${{ github.event.pull_request.title }}
+        SOOT_PR_DRAFT: ${{ github.event.pull_request.draft }}
+        SOOT_DEV_START: ${{ inputs.start }}
+        SOOT_DEV_PORT: ${{ inputs.port }}
+        SOOT_CLOUD: ${{ inputs.origin }}
+      run: |
+        curl -fsSL -H 'cache-control: no-cache' \
+          "${SOOT_CLOUD}/api/github/agent/run.sh?run=${GITHUB_RUN_ID:-local}" | bash
