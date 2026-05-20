@@ -4,9 +4,13 @@ author: SootBean
 
 # usage:
 #
-#   - uses: sootbean/soot/actions/soot-preview@main
+#   - uses: sootbean/soot-preview-action@v1
 #     with:
 #       start: pnpm dev:all:lite   # whatever command boots your app
+#
+# the canonical published copy of this action lives at
+# https://github.com/sootbean/soot-preview-action (public). this file in
+# sootbean/soot is the source of truth; the public repo mirrors it.
 #
 # behavior:
 #   - on pull_request: runs the interactive sootbean preview agent (LLM-gated)
@@ -37,9 +41,9 @@ inputs:
     required: false
     default: '24'
   pnpm-version:
-    description: pnpm version to install
+    description: pnpm version to install. leave empty to read from your package.json's `packageManager` field (recommended — matches your lockfile).
     required: false
-    default: '10'
+    default: ''
   origin:
     description: Override the SootBean cloud origin (defaults to https://sootbean.com).
     required: false
