@@ -1,5 +1,5 @@
 name: SootBean
-description: SootBean PR previews + branch builds for this repo. Auto-dispatches based on the event, or set `mode: preview|build` to invoke a specific role.
+description: 'SootBean PR previews + branch builds for this repo. Auto-dispatches based on the event, or set `mode` to `preview` or `build` to invoke a specific role.'
 author: SootBean
 
 # usage:
