@@ -70,7 +70,7 @@ inputs:
     required: false
     default: auto
   platform:
-    description: When `mode=build`, the single platform to build (`ios` or `android`). Leave blank to iterate every enabled platform from /api/build/config. Set via `${{ matrix.platform }}` for matrix parallelism.
+    description: 'When `mode=build`, the single platform to build (`ios` or `android`). Leave blank to iterate every enabled platform from /api/build/config. Wire to a matrix value for matrix parallelism.'
     required: false
     default: ''
 
