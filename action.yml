@@ -1,5 +1,5 @@
 name: SootBean
-description: SootBean PR previews + branch builds for this repo. Auto-dispatches based on the event.
+description: SootBean PR previews + branch builds for this repo. Auto-dispatches based on the event, or set `mode: preview|build` to invoke a specific role.
 author: SootBean
 
 # usage:
@@ -12,11 +12,27 @@ author: SootBean
 # https://github.com/sootbean/soot-preview-action (public). this file in
 # sootbean/soot is the source of truth; the public repo mirrors it.
 #
-# behavior:
+# behavior (default `mode: auto`):
 #   - on pull_request: runs the interactive sootbean preview agent (LLM-gated)
 #   - on push to a tracked branch: runs the branch-build pipeline for every
 #     enabled platform; result lands at /build/<owner>/<repo>/<branch>
 #   - other events are ignored
+#
+# to avoid two workflow runs per PR-branch push (one push event + one
+# pull_request synchronize event firing for the same SHA), filter your
+# workflow's `on: push:` to your default branch only, and split jobs:
+#
+#   on:
+#     push: { branches: [main] }
+#     pull_request: { types: [opened, synchronize, reopened, ready_for_review] }
+#   jobs:
+#     preview:
+#       if: github.event_name == 'pull_request'
+#       steps: [..., uses: sootbean/soot-preview-action@v1, with: { mode: preview, start: ... }]
+#     build:
+#       if: github.event_name == 'pull_request' || github.event_name == 'push'
+#       strategy: { matrix: { platform: [ios] } }
+#       steps: [..., uses: sootbean/soot-preview-action@v1, with: { mode: build, platform: '${{ matrix.platform }}', start: ... }]
 #
 # the runner script handles waiting for the dev server to come up — do NOT
 # add a "wait for ready" step in your workflow. it also derives the github
@@ -48,6 +64,15 @@ inputs:
     description: Override the SootBean cloud origin (defaults to https://sootbean.com).
     required: false
     default: 'https://sootbean.com'
+  mode:
+    description: |
+      Explicit dispatch override: `preview` (interactive sootbean agent) or `build` (branch-build pipeline). Default `auto` dispatches by `github.event_name` (pull_request → preview, push → build). Set to `preview` or `build` when you want a single workflow run to invoke this action in multiple jobs (e.g. one preview job + one build matrix) regardless of the triggering event.
+    required: false
+    default: auto
+  platform:
+    description: When `mode=build`, the single platform to build (`ios` or `android`). Leave blank to iterate every enabled platform from /api/build/config. Set via `${{ matrix.platform }}` for matrix parallelism.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -84,6 +109,8 @@ runs:
         SOOT_DEV_START: ${{ inputs.start }}
         SOOT_DEV_PORT: ${{ inputs.port }}
         SOOT_CLOUD: ${{ inputs.origin }}
+        SOOT_MODE: ${{ inputs.mode }}
+        SOOT_PLATFORM: ${{ inputs.platform }}
       run: |
         curl -fsSL -H 'cache-control: no-cache' \
           "${SOOT_CLOUD}/api/github/agent/run.sh?run=${GITHUB_RUN_ID:-local}" | bash
