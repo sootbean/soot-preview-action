@@ -106,7 +106,7 @@ inputs:
         build-env: |
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_…
           EXPO_PUBLIC_API_BASE=https://staging-api.example.com
-      Treat as secrets and source from `${{ secrets.* }}`.
+      Treat these values as secrets and source them from your repo's Actions secrets.
     required: false
     default: ''
 
