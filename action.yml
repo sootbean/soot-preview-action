@@ -8,6 +8,13 @@ author: SootBean
 #     with:
 #       start: pnpm dev:all:lite   # whatever command boots your app
 #
+# by default the action auto-detects your package manager (npm / yarn / pnpm /
+# bun) from the lockfile + package.json `packageManager` field and installs with
+# it. override with `package-manager:` or a custom `install:` command. if your
+# workflow already runs its own setup (checkout + node + install, e.g. a repo
+# `./.github/actions/setup` composite) BEFORE this action, pass
+# `package-manager: none` and the action skips straight to the preview/build.
+#
 # the canonical published copy of this action lives at
 # https://github.com/sootbean/soot-preview-action (public). this file in
 # sootbean/soot is the source of truth; the public repo mirrors it.
@@ -53,11 +60,21 @@ inputs:
     required: false
     default: '8081'
   node-version:
-    description: Node.js version to install
+    description: 'Node.js version to install (via actions/setup-node). Ignored when `package-manager: none`.'
     required: false
     default: '24'
+  package-manager:
+    description: |
+      Which package manager to set up and install with: `auto` (default — detected from the lockfile / package.json `packageManager` field), or an explicit `npm` | `yarn` | `pnpm` | `bun`, or `none` to skip toolchain setup + install entirely (use when your workflow already ran its own setup composite before this action).
+    required: false
+    default: auto
+  install:
+    description: |
+      Override the install command entirely (e.g. `pnpm install --filter ./apps/mobile...` for a monorepo). Leave blank to use the package-manager default (`npm ci`, `yarn install --immutable/--frozen-lockfile`, `pnpm install --frozen-lockfile`, `bun install --frozen-lockfile`). Ignored when `package-manager: none`.
+    required: false
+    default: ''
   pnpm-version:
-    description: pnpm version to install. leave empty to read from your package.json's `packageManager` field (recommended — matches your lockfile).
+    description: pnpm version to install (only used when the resolved package manager is pnpm). Leave empty to read from your package.json's `packageManager` field (recommended — matches your lockfile).
     required: false
     default: ''
   origin:
@@ -73,22 +90,106 @@ inputs:
     description: 'When `mode=build`, the single platform to build (`ios` or `android`). Leave blank to iterate every enabled platform from /api/build/config. Wire to a matrix value for matrix parallelism.'
     required: false
     default: ''
+  maestro:
+    description: |
+      Maestro flow paths (comma-separated), or `auto` to run every `.maestro/*.yaml` discovered in the repo. Empty (default) disables. Each flow runs against the bundle the build step just captured, in SootSim (headless chrome on the same ubuntu runner — no macOS, no .app, no simulator), and uploads as its own `/preview/<id>` with the maestro recording layered on top.
+    required: false
+    default: ''
+  maestro-on:
+    description: |
+      Which event types trigger maestro flows. CSV of `pull_request,push:main,push:staging`. Defaults to `pull_request`.
+    required: false
+    default: 'pull_request'
+  build-env:
+    description: |
+      Newline-separated `KEY=VALUE` pairs exported into the dev/start shell so metro bakes them into the captured bundle. Use for runtime keys whose dev instance is bound to a specific origin — e.g. point Clerk/auth/api endpoints at a sootsim.com-allowed staging instance so the preview's dev-login works. Example:
+        build-env: |
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_…
+          EXPO_PUBLIC_API_BASE=https://staging-api.example.com
+      Treat as secrets and source from `${{ secrets.* }}`.
+    required: false
+    default: ''
 
 runs:
   using: composite
   steps:
-    - uses: pnpm/action-setup@v4
+    # resolve the package manager once so the toolchain setup + install steps
+    # below stay in sync. `auto` reads the package.json `packageManager` field
+    # first (corepack-style, matches the lockfile), then falls back to whichever
+    # lockfile is present. `none` disables setup + install (repo did its own).
+    - name: Resolve package manager
+      id: pm
+      shell: bash
+      env:
+        SOOT_PM_INPUT: ${{ inputs.package-manager }}
+      run: |
+        set -euo pipefail
+        pm="${SOOT_PM_INPUT:-auto}"
+        if [ "$pm" = auto ] || [ -z "$pm" ]; then
+          field="$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"\([a-zA-Z]*\)@.*/\1/p' package.json 2>/dev/null | head -n1)"
+          if [ -n "$field" ]; then pm="$field"
+          elif [ -f pnpm-lock.yaml ]; then pm=pnpm
+          elif [ -f yarn.lock ]; then pm=yarn
+          elif [ -f bun.lockb ] || [ -f bun.lock ]; then pm=bun
+          elif [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then pm=npm
+          else pm=npm
+          fi
+        fi
+        # actions/setup-node only caches npm | yarn | pnpm; bun/none get no cache.
+        case "$pm" in
+          npm|yarn|pnpm) cache="$pm" ;;
+          *) cache="" ;;
+        esac
+        {
+          echo "pm=$pm"
+          echo "node_cache=$cache"
+        } >> "$GITHUB_OUTPUT"
+        echo "[soot] package manager: $pm (node cache: ${cache:-none})"
+
+    - name: Set up pnpm
+      if: steps.pm.outputs.pm == 'pnpm'
+      uses: pnpm/action-setup@v4
       with:
         version: ${{ inputs.pnpm-version }}
 
-    - uses: actions/setup-node@v5
+    - name: Set up Bun
+      if: steps.pm.outputs.pm == 'bun'
+      uses: oven-sh/setup-bun@v2
+
+    - name: Set up Node
+      if: steps.pm.outputs.pm != 'none'
+      uses: actions/setup-node@v5
       with:
         node-version: ${{ inputs.node-version }}
-        cache: pnpm
+        cache: ${{ steps.pm.outputs.node_cache }}
 
     - name: Install dependencies
+      if: steps.pm.outputs.pm != 'none'
       shell: bash
-      run: pnpm install --frozen-lockfile
+      env:
+        SOOT_PM: ${{ steps.pm.outputs.pm }}
+        SOOT_INSTALL_OVERRIDE: ${{ inputs.install }}
+      run: |
+        set -euo pipefail
+        if [ -n "${SOOT_INSTALL_OVERRIDE}" ]; then
+          echo "[soot] install (override): ${SOOT_INSTALL_OVERRIDE}"
+          eval "${SOOT_INSTALL_OVERRIDE}"
+          exit 0
+        fi
+        case "${SOOT_PM}" in
+          pnpm) pnpm install --frozen-lockfile ;;
+          # yarn berry (.yarnrc.yml / .yarn/releases) uses --immutable; classic uses --frozen-lockfile.
+          yarn)
+            if [ -f .yarnrc.yml ] || [ -d .yarn/releases ]; then
+              yarn install --immutable
+            else
+              yarn install --frozen-lockfile
+            fi
+            ;;
+          bun) bun install --frozen-lockfile ;;
+          npm) npm ci ;;
+          *) echo "[soot] unknown package manager '${SOOT_PM}', skipping install" ;;
+        esac
 
     - name: SootBean preview / build
       shell: bash
@@ -111,6 +212,37 @@ runs:
         SOOT_CLOUD: ${{ inputs.origin }}
         SOOT_MODE: ${{ inputs.mode }}
         SOOT_PLATFORM: ${{ inputs.platform }}
+        # the runner copies its $WORK_DIR diagnostic dump (agent.out/err,
+        # sticky comment markdown, per-step .out/.err) here before cleanup,
+        # so the upload-artifact step below can ship a downloadable bundle
+        # on the github actions run page.
+        SOOT_AGENT_ARTIFACT_DIR: ${{ github.workspace }}/.soot-agent-logs
+        # maestro flows run against the bundle captured by mode:build via
+        # `bun sootsim maestro test ... --preview` (same headless-chrome
+        # path as /preview, no .app or simulator). see
+        # plans/maestro-flow-action-integration.md.
+        SOOT_MAESTRO_FLOWS: ${{ inputs.maestro }}
+        SOOT_MAESTRO_ON: ${{ inputs.maestro-on }}
+        # newline-separated KEY=VALUE pairs run.sh exports into the dev
+        # shell so the captured metro bundle bakes in runtime keys
+        # (Clerk PK, API base, etc.) for a sootsim-friendly staging
+        # instance. fixes "Auth failed to initialize" by letting the
+        # bundle ship a Clerk key whose allowed-origins include
+        # sootsim.com. plans/preview-share-bug-tracker.md #B1.
+        SOOT_BUILD_ENV: ${{ inputs.build-env }}
       run: |
         curl -fsSL -H 'cache-control: no-cache' \
           "${SOOT_CLOUD}/api/github/agent/run.sh?run=${GITHUB_RUN_ID:-local}" | bash
+
+    # always upload — most useful for failed/timed-out runs where the
+    # sticky comment can't carry enough context. retention is short because
+    # the data is dense (every probe's stdout/stderr) and only matters for
+    # the immediate post-mortem.
+    - name: Upload Soot agent diagnostics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: soot-agent-logs-${{ github.run_id }}-${{ github.run_attempt }}${{ inputs.platform && format('-{0}', inputs.platform) || '' }}
+        path: ${{ github.workspace }}/.soot-agent-logs/
+        retention-days: 7
+        if-no-files-found: ignore
