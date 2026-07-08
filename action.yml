@@ -100,13 +100,18 @@ inputs:
       Which event types trigger maestro flows. CSV of `pull_request,push:main,push:staging`. Defaults to `pull_request`.
     required: false
     default: 'pull_request'
+  runner:
+    description: |
+      Where the preview recording executes: `local` (default — the sootbot agent, SootSim, and the recording all run on this workflow's runner) or `hosted` (this runner only serves the dev stack through a token-gated tunnel; a SootBean GPU recorder drives and records it, producing dramatically smoother videos than a CPU-only CI runner). `hosted` requires the Carbon plan.
+    required: false
+    default: 'local'
   build-env:
     description: |
       Newline-separated `KEY=VALUE` pairs exported into the dev/start shell so metro bakes them into the captured bundle. Use for runtime keys whose dev instance is bound to a specific origin — e.g. point Clerk/auth/api endpoints at a sootsim.com-allowed staging instance so the preview's dev-login works. Example:
         build-env: |
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_…
           EXPO_PUBLIC_API_BASE=https://staging-api.example.com
-      Treat these values as secrets and source them from your repo's Actions secrets.
+      Treat these as secrets and source them from your repo or environment secrets.
     required: false
     default: ''
 
@@ -223,6 +228,11 @@ runs:
         # plans/maestro-flow-action-integration.md.
         SOOT_MAESTRO_FLOWS: ${{ inputs.maestro }}
         SOOT_MAESTRO_ON: ${{ inputs.maestro-on }}
+        # runner: hosted → this job serves the dev stack through a
+        # token-gated tunnel and a SootBean GPU recorder drives + records
+        # (mode 2). the recorder posts the sticky comment / check runs from
+        # its own run of the same script.
+        SOOT_RUNNER: ${{ inputs.runner }}
         # newline-separated KEY=VALUE pairs run.sh exports into the dev
         # shell so the captured metro bundle bakes in runtime keys
         # (Clerk PK, API base, etc.) for a sootsim-friendly staging
