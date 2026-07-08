@@ -89,7 +89,9 @@ preview/build:
 | `pnpm-version` | _empty_ | pnpm version (only when the resolved manager is pnpm). Empty reads from `packageManager`. |
 | `mode` | `auto` | `auto` (dispatch by event) \| `preview` \| `build`. |
 | `platform` | _empty_ | When `mode=build`, the single platform (`ios`/`android`). Wire to a matrix for parallelism. |
-| `maestro` | _empty_ | Maestro flow paths, or `auto` to run every `.maestro/*.yaml`. |
+| `maestro` | _empty_ | Maestro flow paths, or `auto` to run every `.maestro/*.yaml`. Each flow runs in SootSim against the PR's bundle and uploads its own replayable preview, listed in the sticky comment's Tests table and the "Soot Tests" check run. |
+| `maestro-on` | `pull_request` | Which events run maestro flows: CSV of `pull_request,push:main,push:staging`. |
+| `runner` | `local` | `local` runs everything on this workflow's runner. `hosted` keeps this runner serving the dev stack through a token-gated tunnel while a SootBean GPU recorder drives and records it — dramatically smoother videos than a CPU-only CI runner. Requires the Carbon plan. |
 | `build-env` | _empty_ | Newline-separated `KEY=VALUE` pairs baked into the captured bundle (e.g. `EXPO_PUBLIC_*` / Clerk keys). Source from `${{ secrets.* }}`. |
 | `origin` | `https://sootbean.com` | Override the SootBean cloud origin. |
 
