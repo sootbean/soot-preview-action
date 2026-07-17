@@ -1,6 +1,6 @@
-name: SootBean
-description: 'SootBean PR previews + branch builds for this repo. Auto-dispatches based on the event, or set `mode` to `preview` or `build` to invoke a specific role.'
-author: SootBean
+name: Contrast
+description: 'Contrast PR previews + branch builds for this repo. Auto-dispatches based on the event, or set `mode` to `preview` or `build` to invoke a specific role.'
+author: Contrast
 
 # usage:
 #
@@ -20,7 +20,7 @@ author: SootBean
 # sootbean/soot is the source of truth; the public repo mirrors it.
 #
 # behavior (default `mode: auto`):
-#   - on pull_request: runs the interactive sootbean preview agent (LLM-gated)
+#   - on pull_request: runs the interactive contrast preview agent (LLM-gated)
 #   - on push to a tracked branch: runs the branch-build pipeline for every
 #     enabled platform; result lands at /build/<owner>/<repo>/<branch>
 #   - other events are ignored
@@ -78,12 +78,12 @@ inputs:
     required: false
     default: ''
   origin:
-    description: Override the SootBean cloud origin (defaults to https://sootbean.com).
+    description: Override the Contrast cloud origin (defaults to https://contrast.dev).
     required: false
-    default: 'https://sootbean.com'
+    default: 'https://contrast.dev'
   mode:
     description: |
-      Explicit dispatch override: `preview` (interactive sootbean agent) or `build` (branch-build pipeline). Default `auto` dispatches by `github.event_name` (pull_request → preview, push → build). Set to `preview` or `build` when you want a single workflow run to invoke this action in multiple jobs (e.g. one preview job + one build matrix) regardless of the triggering event.
+      Explicit dispatch override: `preview` (interactive contrast agent) or `build` (branch-build pipeline). Default `auto` dispatches by `github.event_name` (pull_request → preview, push → build). Set to `preview` or `build` when you want a single workflow run to invoke this action in multiple jobs (e.g. one preview job + one build matrix) regardless of the triggering event.
     required: false
     default: auto
   platform:
@@ -102,7 +102,7 @@ inputs:
     default: 'pull_request'
   runner:
     description: |
-      Where the preview recording executes: `local` (default — the sootbot agent, SootSim, and the recording all run on this workflow's runner) or `hosted` (this runner only serves the dev stack through a token-gated tunnel; a SootBean GPU recorder drives and records it, producing dramatically smoother videos than a CPU-only CI runner). `hosted` requires the Carbon plan.
+      Where the preview recording executes: `local` (default — the contrastbot agent, SootSim, and the recording all run on this workflow's runner) or `hosted` (this runner only serves the dev stack through a token-gated tunnel; a Contrast GPU recorder drives and records it, producing dramatically smoother videos than a CPU-only CI runner). `hosted` requires the Carbon plan.
     required: false
     default: 'local'
   build-env:
@@ -126,10 +126,10 @@ runs:
       id: pm
       shell: bash
       env:
-        SOOT_PM_INPUT: ${{ inputs.package-manager }}
+        CONTRAST_PM_INPUT: ${{ inputs.package-manager }}
       run: |
         set -euo pipefail
-        pm="${SOOT_PM_INPUT:-auto}"
+        pm="${CONTRAST_PM_INPUT:-auto}"
         if [ "$pm" = auto ] || [ -z "$pm" ]; then
           field="$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"\([a-zA-Z]*\)@.*/\1/p' package.json 2>/dev/null | head -n1)"
           if [ -n "$field" ]; then pm="$field"
@@ -149,7 +149,7 @@ runs:
           echo "pm=$pm"
           echo "node_cache=$cache"
         } >> "$GITHUB_OUTPUT"
-        echo "[soot] package manager: $pm (node cache: ${cache:-none})"
+        echo "[contrast] package manager: $pm (node cache: ${cache:-none})"
 
     - name: Set up pnpm
       if: steps.pm.outputs.pm == 'pnpm'
@@ -172,16 +172,16 @@ runs:
       if: steps.pm.outputs.pm != 'none'
       shell: bash
       env:
-        SOOT_PM: ${{ steps.pm.outputs.pm }}
-        SOOT_INSTALL_OVERRIDE: ${{ inputs.install }}
+        CONTRAST_PM: ${{ steps.pm.outputs.pm }}
+        CONTRAST_INSTALL_OVERRIDE: ${{ inputs.install }}
       run: |
         set -euo pipefail
-        if [ -n "${SOOT_INSTALL_OVERRIDE}" ]; then
-          echo "[soot] install (override): ${SOOT_INSTALL_OVERRIDE}"
-          eval "${SOOT_INSTALL_OVERRIDE}"
+        if [ -n "${CONTRAST_INSTALL_OVERRIDE}" ]; then
+          echo "[contrast] install (override): ${CONTRAST_INSTALL_OVERRIDE}"
+          eval "${CONTRAST_INSTALL_OVERRIDE}"
           exit 0
         fi
-        case "${SOOT_PM}" in
+        case "${CONTRAST_PM}" in
           pnpm) pnpm install --frozen-lockfile ;;
           # yarn berry (.yarnrc.yml / .yarn/releases) uses --immutable; classic uses --frozen-lockfile.
           yarn)
@@ -193,66 +193,73 @@ runs:
             ;;
           bun) bun install --frozen-lockfile ;;
           npm) npm ci ;;
-          *) echo "[soot] unknown package manager '${SOOT_PM}', skipping install" ;;
+          *) echo "[contrast] unknown package manager '${CONTRAST_PM}', skipping install" ;;
         esac
 
-    - name: SootBean preview / build
+    - name: Contrast preview / build
       shell: bash
       env:
-        # the soot runner reads everything from env. nothing here is secret
+        # the contrast runner reads everything from env. nothing here is secret
         # apart from GITHUB_TOKEN (auto-injected, repo-scoped).
-        SOOT_INSTALLATION_TOKEN: ${{ github.token }}
-        SOOT_REPO: ${{ github.repository }}
-        SOOT_REPO_ID: ${{ github.event.repository.id }}
-        SOOT_EVENT_NAME: ${{ github.event_name }}
-        SOOT_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
-        SOOT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        SOOT_RUN_ID: ${{ github.run_id }}
-        SOOT_RUN_ATTEMPT: ${{ github.run_attempt }}
-        SOOT_PR_NUMBER: ${{ github.event.pull_request.number }}
-        SOOT_PR_TITLE: ${{ github.event.pull_request.title }}
-        SOOT_PR_DRAFT: ${{ github.event.pull_request.draft }}
-        SOOT_DEV_START: ${{ inputs.start }}
-        SOOT_DEV_PORT: ${{ inputs.port }}
-        SOOT_CLOUD: ${{ inputs.origin }}
-        SOOT_MODE: ${{ inputs.mode }}
-        SOOT_PLATFORM: ${{ inputs.platform }}
+        CONTRAST_INSTALLATION_TOKEN: ${{ github.token }}
+        CONTRAST_REPO: ${{ github.repository }}
+        CONTRAST_REPO_ID: ${{ github.event.repository.id }}
+        CONTRAST_EVENT_NAME: ${{ github.event_name }}
+        CONTRAST_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        CONTRAST_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        CONTRAST_RUN_ID: ${{ github.run_id }}
+        CONTRAST_RUN_ATTEMPT: ${{ github.run_attempt }}
+        CONTRAST_PR_NUMBER: ${{ github.event.pull_request.number }}
+        CONTRAST_PR_TITLE: ${{ github.event.pull_request.title }}
+        CONTRAST_PR_DRAFT: ${{ github.event.pull_request.draft }}
+        CONTRAST_DEV_START: ${{ inputs.start }}
+        CONTRAST_DEV_PORT: ${{ inputs.port }}
+        CONTRAST_CLOUD: ${{ inputs.origin }}
+        CONTRAST_MODE: ${{ inputs.mode }}
+        CONTRAST_PLATFORM: ${{ inputs.platform }}
         # the runner copies its $WORK_DIR diagnostic dump (agent.out/err,
         # sticky comment markdown, per-step .out/.err) here before cleanup,
         # so the upload-artifact step below can ship a downloadable bundle
         # on the github actions run page.
-        SOOT_AGENT_ARTIFACT_DIR: ${{ github.workspace }}/.soot-agent-logs
+        CONTRAST_AGENT_ARTIFACT_DIR: ${{ github.workspace }}/.contrast-agent-logs
         # maestro flows run against the bundle captured by mode:build via
         # `bun sootsim maestro test ... --preview` (same headless-chrome
         # path as /preview, no .app or simulator). see
         # plans/maestro-flow-action-integration.md.
-        SOOT_MAESTRO_FLOWS: ${{ inputs.maestro }}
-        SOOT_MAESTRO_ON: ${{ inputs.maestro-on }}
+        CONTRAST_MAESTRO_FLOWS: ${{ inputs.maestro }}
+        CONTRAST_MAESTRO_ON: ${{ inputs.maestro-on }}
         # runner: hosted → this job serves the dev stack through a
-        # token-gated tunnel and a SootBean GPU recorder drives + records
+        # token-gated tunnel and a Contrast GPU recorder drives + records
         # (mode 2). the recorder posts the sticky comment / check runs from
         # its own run of the same script.
-        SOOT_RUNNER: ${{ inputs.runner }}
+        CONTRAST_RUNNER: ${{ inputs.runner }}
         # newline-separated KEY=VALUE pairs run.sh exports into the dev
         # shell so the captured metro bundle bakes in runtime keys
         # (Clerk PK, API base, etc.) for a sootsim-friendly staging
         # instance. fixes "Auth failed to initialize" by letting the
         # bundle ship a Clerk key whose allowed-origins include
         # sootsim.com. plans/preview-share-bug-tracker.md #B1.
-        SOOT_BUILD_ENV: ${{ inputs.build-env }}
+        CONTRAST_BUILD_ENV: ${{ inputs.build-env }}
       run: |
-        curl -fsSL -H 'cache-control: no-cache' \
-          "${SOOT_CLOUD}/api/github/agent/run.sh?run=${GITHUB_RUN_ID:-local}" | bash
+        runner_script="$(mktemp "${RUNNER_TEMP:-/tmp}/contrast-runner.XXXXXX")"
+        trap 'rm -f "$runner_script"' EXIT
+        # download before executing so an HTTP error cannot become an empty,
+        # successful bash pipeline.
+        curl --fail --show-error --silent --location \
+          -H 'cache-control: no-cache' \
+          --output "$runner_script" \
+          "${CONTRAST_CLOUD}/api/github/agent/run.sh?run=${GITHUB_RUN_ID:-local}"
+        bash "$runner_script"
 
     # always upload — most useful for failed/timed-out runs where the
     # sticky comment can't carry enough context. retention is short because
     # the data is dense (every probe's stdout/stderr) and only matters for
     # the immediate post-mortem.
-    - name: Upload Soot agent diagnostics
+    - name: Upload Contrast agent diagnostics
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: soot-agent-logs-${{ github.run_id }}-${{ github.run_attempt }}${{ inputs.platform && format('-{0}', inputs.platform) || '' }}
-        path: ${{ github.workspace }}/.soot-agent-logs/
+        name: contrast-agent-logs-${{ github.run_id }}-${{ github.run_attempt }}${{ inputs.platform && format('-{0}', inputs.platform) || '' }}
+        path: ${{ github.workspace }}/.contrast-agent-logs/
         retention-days: 7
         if-no-files-found: ignore
