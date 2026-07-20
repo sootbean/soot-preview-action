@@ -55,6 +55,11 @@ inputs:
     description: Command that boots the app dev server in the background (e.g. "pnpm dev:all:lite"). Leave blank if your app is already up by the time this action runs.
     required: false
     default: ''
+  phase:
+    description: |
+      Execution phase: `run` (default) starts the preview/build and waits for it, `start` launches it in the background so later workflow steps can run concurrently, and `wait` joins a prior `start` invocation and uploads diagnostics. Use `package-manager: none` with `start` when the job already installed dependencies.
+    required: false
+    default: run
   port:
     description: Port the dev server listens on. Defaults to 8081 (metro/expo).
     required: false
@@ -123,6 +128,7 @@ runs:
     # first (corepack-style, matches the lockfile), then falls back to whichever
     # lockfile is present. `none` disables setup + install (repo did its own).
     - name: Resolve package manager
+      if: inputs.phase != 'wait'
       id: pm
       shell: bash
       env:
@@ -152,24 +158,24 @@ runs:
         echo "[contrast] package manager: $pm (node cache: ${cache:-none})"
 
     - name: Set up pnpm
-      if: steps.pm.outputs.pm == 'pnpm'
+      if: inputs.phase != 'wait' && steps.pm.outputs.pm == 'pnpm'
       uses: pnpm/action-setup@v4
       with:
         version: ${{ inputs.pnpm-version }}
 
     - name: Set up Bun
-      if: steps.pm.outputs.pm == 'bun'
+      if: inputs.phase != 'wait' && steps.pm.outputs.pm == 'bun'
       uses: oven-sh/setup-bun@v2
 
     - name: Set up Node
-      if: steps.pm.outputs.pm != 'none'
+      if: inputs.phase != 'wait' && steps.pm.outputs.pm != 'none'
       uses: actions/setup-node@v5
       with:
         node-version: ${{ inputs.node-version }}
         cache: ${{ steps.pm.outputs.node_cache }}
 
     - name: Install dependencies
-      if: steps.pm.outputs.pm != 'none'
+      if: inputs.phase != 'wait' && steps.pm.outputs.pm != 'none'
       shell: bash
       env:
         CONTRAST_PM: ${{ steps.pm.outputs.pm }}
@@ -240,23 +246,75 @@ runs:
         # bundle ship a Clerk key whose allowed-origins include
         # sootsim.com. plans/preview-share-bug-tracker.md #B1.
         CONTRAST_BUILD_ENV: ${{ inputs.build-env }}
+        CONTRAST_ACTION_PHASE: ${{ inputs.phase }}
       run: |
-        runner_script="$(mktemp "${RUNNER_TEMP:-/tmp}/contrast-runner.XXXXXX")"
-        trap 'rm -f "$runner_script"' EXIT
-        # download before executing so an HTTP error cannot become an empty,
-        # successful bash pipeline.
-        curl --fail --show-error --silent --location \
-          -H 'cache-control: no-cache' \
-          --output "$runner_script" \
-          "${CONTRAST_CLOUD}/api/github/agent/run.sh?run=${GITHUB_RUN_ID:-local}"
-        bash "$runner_script"
+        set -euo pipefail
+
+        phase="${CONTRAST_ACTION_PHASE:-run}"
+        case "$phase" in
+          run|start|wait) ;;
+          *) echo "[contrast] phase must be run, start, or wait (got '$phase')" >&2; exit 2 ;;
+        esac
+
+        platform="${CONTRAST_PLATFORM:-all}"
+        state_dir="${RUNNER_TEMP:-/tmp}/contrast-action-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${platform}"
+        status_file="$state_dir/status"
+        log_file="$state_dir/runner.log"
+        pid_file="$state_dir/pid"
+
+        if [ "$phase" != wait ]; then
+          rm -rf "$state_dir"
+          mkdir -p "$state_dir"
+          runner_script="$state_dir/runner.sh"
+          # download before executing so an HTTP error cannot become an empty,
+          # successful bash pipeline.
+          curl --fail --show-error --silent --location \
+            -H 'cache-control: no-cache' \
+            --output "$runner_script" \
+            "${CONTRAST_CLOUD}/api/github/agent/run.sh?run=${GITHUB_RUN_ID:-local}"
+
+          # github runner cleanup terminates marked child processes after a
+          # step. clear its marker so phase:start survives until phase:wait.
+          RUNNER_TRACKING_ID='' nohup bash -c '
+            set +e
+            bash "$1" > "$2" 2>&1
+            code=$?
+            printf "%s\n" "$code" > "$3.tmp"
+            mv "$3.tmp" "$3"
+          ' _ "$runner_script" "$log_file" "$status_file" </dev/null >/dev/null 2>&1 &
+          printf '%s\n' "$!" > "$pid_file"
+          echo "[contrast] started runner pid $!"
+          if [ "$phase" = start ]; then exit 0; fi
+        elif [ ! -f "$pid_file" ]; then
+          echo "[contrast] no matching phase:start invocation for this run" >&2
+          exit 1
+        fi
+
+        while [ ! -f "$status_file" ]; do
+          pid="$(cat "$pid_file")"
+          if ! kill -0 "$pid" 2>/dev/null; then
+            # the wrapper writes status before exiting; allow that final rename
+            # to become visible before treating a missing status as a crash.
+            sleep 1
+            if [ ! -f "$status_file" ]; then
+              echo "[contrast] background runner exited without a status" >&2
+              [ ! -f "$log_file" ] || cat "$log_file"
+              exit 1
+            fi
+          else
+            sleep 1
+          fi
+        done
+
+        cat "$log_file"
+        exit "$(cat "$status_file")"
 
     # always upload — most useful for failed/timed-out runs where the
     # sticky comment can't carry enough context. retention is short because
     # the data is dense (every probe's stdout/stderr) and only matters for
     # the immediate post-mortem.
     - name: Upload Contrast agent diagnostics
-      if: always()
+      if: always() && inputs.phase != 'start'
       uses: actions/upload-artifact@v4
       with:
         name: contrast-agent-logs-${{ github.run_id }}-${{ github.run_attempt }}${{ inputs.platform && format('-{0}', inputs.platform) || '' }}

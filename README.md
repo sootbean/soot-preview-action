@@ -1,7 +1,7 @@
 <!--
-  SOURCE OF TRUTH. This README (and action.yml next to it) is mirrored from the
-  private sootbean/soot monorepo during the Contrast action-repo cutover. Edit
-  the monorepo source, then sync it here.
+  SOURCE OF TRUTH. This README (and action.yml next to it) is mirrored to the
+  public github.com/sootbean/soot-preview-action repo by
+  `bun scripts/ops/publish-preview-action.ts --push`. Edit here, not there.
 -->
 
 # sootbean/soot-preview-action
@@ -82,6 +82,7 @@ preview/build:
 | Name | Default | Description |
 |---|---|---|
 | `start` | _empty_ | Command that boots your app dev server in the background. The runner waits for it to be ready before recording. Leave blank if the app is already up. |
+| `phase` | `run` | `run` starts and waits in one invocation. `start` launches in the background; a later `wait` invocation joins it and uploads diagnostics. |
 | `port` | `8081` | Port your dev server listens on (Metro/Expo default). |
 | `package-manager` | `auto` | `auto` (detect) \| `npm` \| `yarn` \| `pnpm` \| `bun` \| `none` (skip setup + install; you ran your own). |
 | `install` | _empty_ | Override the install command entirely (e.g. a monorepo filter). |
@@ -95,12 +96,49 @@ preview/build:
 | `build-env` | _empty_ | Newline-separated `KEY=VALUE` pairs baked into the captured bundle (e.g. `EXPO_PUBLIC_*` / Clerk keys). Source from `${{ secrets.* }}`. |
 | `origin` | `https://contrast.dev` | Override the Contrast cloud origin. |
 
+## Run alongside other job steps
+
+After a shared install, split the action into `start` and `wait` phases to
+overlap a preview with independent checks on the same runner. The `wait` phase
+must run on the same job and runner as `start`.
+
+```yaml
+      - uses: ./.github/actions/setup
+      - uses: sootbean/soot-preview-action@v1
+        with:
+          phase: start
+          package-manager: none
+          start: pnpm dev
+
+      - run: pnpm test
+
+      - uses: sootbean/soot-preview-action@v1
+        if: always()
+        with:
+          phase: wait
+```
+
+Choose placement from the server lifecycle already in the job:
+
+- Use `phase: start` immediately after the shared install and `phase: wait`
+  near the end when the preview can own its dev-server port while independent
+  tests run. This is the most time-efficient shape, but both workloads share
+  runner CPU and memory.
+- Run the default `phase: run` before tests when the preview needs a clean app
+  state or its dev server would conflict with test ports and processes.
+- Run `phase: run` after tests when those steps produce the exact build or
+  start the exact server the preview consumes. Leave `start` empty only when
+  that server remains alive after the producing step.
+- Keep a separate job when the existing job cannot share a live process,
+  permissions, runner labels, or resource capacity. That costs another
+  checkout and install but isolates failures and contention.
+
 The runner derives everything else from `${{ github }}` context — repo id,
 branch, SHA, PR number, run id, install token. No repo variables needed.
 
 ## Prerequisites
 
-1. Install the **[Contrast GitHub App](https://github.com/apps/contrast)** on the
+1. Install the **[Contrast GitHub App](https://github.com/apps/contrast-sootsim)** on the
    repo. The app opens a bootstrap PR with this workflow on first install; this
    README is for repos that want to write the workflow by hand.
 2. Open the repo on [contrast.dev](https://contrast.dev) once so per-repo build
@@ -110,5 +148,5 @@ branch, SHA, PR number, run id, install token. No repo variables needed.
 ## Source
 
 The action's source of truth lives in the private `sootbean/soot` monorepo at
-`actions/soot-preview/action.yml` and is mirrored here. Issues and feature
+`actions/contrast-preview/action.yml` and is mirrored here. Issues and feature
 requests welcome.
