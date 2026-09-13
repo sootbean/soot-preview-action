@@ -19,12 +19,14 @@ GitHub Action that runs the [Contrast](https://contrast.dev) preview agent
 name: Contrast
 on:
   push:
+    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 permissions:
   contents: read
   pull-requests: write
   issues: write
+  actions: read
 jobs:
   contrast:
     if: ${{ github.event.pull_request.draft != true }}
@@ -84,13 +86,14 @@ preview/build:
 | `start` | _empty_ | Command that boots your app dev server in the background. The runner waits for it to be ready before recording. Leave blank if the app is already up. |
 | `phase` | `run` | `run` starts and waits in one invocation. `start` launches in the background; a later `wait` invocation joins it and uploads diagnostics. |
 | `port` | `8081` | Port your dev server listens on (Metro/Expo default). |
+| `sidecar-ports` | _empty_ | Additional localhost ports, comma-separated, that a hosted preview must project alongside the app server (for example mock API or authentication servers). |
 | `package-manager` | `auto` | `auto` (detect) \| `npm` \| `yarn` \| `pnpm` \| `bun` \| `none` (skip setup + install; you ran your own). |
 | `install` | _empty_ | Override the install command entirely (e.g. a monorepo filter). |
 | `node-version` | `24` | Node.js version installed via `actions/setup-node`. Ignored when `package-manager: none`. |
 | `pnpm-version` | _empty_ | pnpm version (only when the resolved manager is pnpm). Empty reads from `packageManager`. |
 | `mode` | `auto` | `auto` (dispatch by event) \| `preview` \| `build`. |
 | `platform` | _empty_ | When `mode=build`, the single platform (`ios`/`android`). Wire to a matrix for parallelism. |
-| `maestro` | _empty_ | Maestro flow paths, or `auto` to run every `.maestro/*.yaml`. Each flow runs in SootSim against the PR's bundle and uploads its own replayable preview, listed in the sticky comment's Tests table and the "Contrast Tests" check run. |
+| `maestro` | _empty_ | Maestro flow paths, or `auto` to run every `.maestro/*.yaml`. Each flow runs in rnx against the PR's bundle and uploads its own replayable preview, listed in the sticky comment's Tests table and the "Contrast Tests" check run. |
 | `maestro-on` | `pull_request` | Which events run maestro flows: CSV of `pull_request,push:main,push:staging`. |
 | `runner` | `local` | `local` runs everything on this workflow's runner. `hosted` keeps this runner serving the dev stack through a token-gated tunnel while a Contrast GPU recorder drives and records it — dramatically smoother videos than a CPU-only CI runner. Requires the Carbon plan. |
 | `build-env` | _empty_ | Newline-separated `KEY=VALUE` pairs baked into the captured bundle (e.g. `EXPO_PUBLIC_*` / Clerk keys). Source from `${{ secrets.* }}`. |
@@ -138,12 +141,12 @@ branch, SHA, PR number, run id, install token. No repo variables needed.
 
 ## Prerequisites
 
-1. Install the **[Contrast GitHub App](https://github.com/apps/contrast-sootsim)** on the
-   repo. The app opens a bootstrap PR with this workflow on first install; this
-   README is for repos that want to write the workflow by hand.
-2. Open the repo on [contrast.dev](https://contrast.dev) once so per-repo build
-   settings (platforms, visibility, tracked branches) are persisted.
-3. Be on the [Carbon plan](https://sootsim.com/docs/sootsim/plans).
+1. Install the **[Contrast GitHub App](https://github.com/apps/contrast-sootsim)** and
+   select the repo. GitHub returns you to Contrast, where signing in connects
+   the repo to your account and opens a bootstrap PR with this workflow. This
+   README is for repos that want to write the workflow by hand, or that granted
+   the app every repository (no PR is opened in that case).
+2. Be on the [Carbon plan](https://sootsim.com/docs/sootsim/plans).
 
 ## Source
 

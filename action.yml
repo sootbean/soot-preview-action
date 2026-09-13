@@ -64,6 +64,10 @@ inputs:
     description: Port the dev server listens on. Defaults to 8081 (metro/expo).
     required: false
     default: '8081'
+  sidecar-ports:
+    description: Comma-separated additional localhost ports the app needs during a hosted preview, such as mock API or authentication servers.
+    required: false
+    default: ''
   node-version:
     description: 'Node.js version to install (via actions/setup-node). Ignored when `package-manager: none`.'
     required: false
@@ -97,7 +101,7 @@ inputs:
     default: ''
   maestro:
     description: |
-      Maestro flow paths (comma-separated), or `auto` to run every `.maestro/*.yaml` discovered in the repo. Empty (default) disables. Each flow runs against the bundle the build step just captured, in SootSim (headless chrome on the same ubuntu runner — no macOS, no .app, no simulator), and uploads as its own `/preview/<id>` with the maestro recording layered on top.
+      Maestro flow paths (comma-separated), or `auto` to run every `.maestro/*.yaml` discovered in the repo. Empty (default) disables. Each flow runs against the bundle the build step just captured, in rnx (headless Chrome on the same Ubuntu runner, with no macOS, .app, or native simulator), and uploads as its own `/preview/<id>` with the maestro recording layered on top.
     required: false
     default: ''
   maestro-on:
@@ -107,12 +111,12 @@ inputs:
     default: 'pull_request'
   runner:
     description: |
-      Where the preview recording executes: `local` (default — the contrastbot agent, SootSim, and the recording all run on this workflow's runner) or `hosted` (this runner only serves the dev stack through a token-gated tunnel; a Contrast GPU recorder drives and records it, producing dramatically smoother videos than a CPU-only CI runner). `hosted` requires the Carbon plan.
+      Where the preview recording executes: `local` (default; the contrastbot agent, rnx, and the recording all run on this workflow's runner) or `hosted` (this runner only serves the dev stack through a token-gated tunnel; a Contrast GPU recorder drives and records it, producing dramatically smoother videos than a CPU-only CI runner). `hosted` requires the Carbon plan.
     required: false
     default: 'local'
   build-env:
     description: |
-      Newline-separated `KEY=VALUE` pairs exported into the dev/start shell so metro bakes them into the captured bundle. Use for runtime keys whose dev instance is bound to a specific origin — e.g. point Clerk/auth/api endpoints at a sootsim.com-allowed staging instance so the preview's dev-login works. Example:
+      Newline-separated `KEY=VALUE` pairs exported into the dev/start shell so metro bakes them into the captured bundle. Use for runtime keys whose dev instance is bound to a specific origin. For example, point Clerk/auth/api endpoints at a staging instance whose origin policy allows sootsim.com so the preview's dev-login works:
         build-env: |
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_…
           EXPO_PUBLIC_API_BASE=https://staging-api.example.com
@@ -143,9 +147,21 @@ runs:
           elif [ -f yarn.lock ]; then pm=yarn
           elif [ -f bun.lockb ] || [ -f bun.lock ]; then pm=bun
           elif [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then pm=npm
-          else pm=npm
+          elif [ -f bunfig.toml ] || grep -Eq '"(@types/bun|bun-types|trustedDependencies)"[[:space:]]*:' package.json 2>/dev/null; then pm=bun
+          else
+            echo "::error title=Contrast could not detect a package manager::Commit a lockfile or package.json packageManager field, or set package-manager to npm, yarn, pnpm, or bun."
+            echo "[contrast] package-manager auto found no lockfile, package.json packageManager field, or Bun project marker. Commit one of those signals or set package-manager explicitly." >&2
+            exit 2
           fi
         fi
+        case "$pm" in
+          npm|yarn|pnpm|bun|none) ;;
+          *)
+            echo "::error title=Contrast package manager is invalid::Set package-manager to auto, npm, yarn, pnpm, bun, or none."
+            echo "[contrast] unsupported package-manager '$pm'; expected auto, npm, yarn, pnpm, bun, or none." >&2
+            exit 2
+            ;;
+        esac
         # actions/setup-node only caches npm | yarn | pnpm; bun/none get no cache.
         case "$pm" in
           npm|yarn|pnpm) cache="$pm" ;;
@@ -199,7 +215,7 @@ runs:
             ;;
           bun) bun install --frozen-lockfile ;;
           npm) npm ci ;;
-          *) echo "[contrast] unknown package manager '${CONTRAST_PM}', skipping install" ;;
+          *) echo "[contrast] unsupported package manager '${CONTRAST_PM}'" >&2; exit 2 ;;
         esac
 
     - name: Contrast preview / build
@@ -220,6 +236,7 @@ runs:
         CONTRAST_PR_DRAFT: ${{ github.event.pull_request.draft }}
         CONTRAST_DEV_START: ${{ inputs.start }}
         CONTRAST_DEV_PORT: ${{ inputs.port }}
+        CONTRAST_SIDECAR_PORTS: ${{ inputs.sidecar-ports }}
         CONTRAST_CLOUD: ${{ inputs.origin }}
         CONTRAST_MODE: ${{ inputs.mode }}
         CONTRAST_PLATFORM: ${{ inputs.platform }}
@@ -229,7 +246,7 @@ runs:
         # on the github actions run page.
         CONTRAST_AGENT_ARTIFACT_DIR: ${{ github.workspace }}/.contrast-agent-logs
         # maestro flows run against the bundle captured by mode:build via
-        # `bun sootsim maestro test ... --preview` (same headless-chrome
+        # `bun rnx maestro test ... --preview` (same headless-chrome
         # path as /preview, no .app or simulator). see
         # plans/maestro-flow-action-integration.md.
         CONTRAST_MAESTRO_FLOWS: ${{ inputs.maestro }}
@@ -241,7 +258,7 @@ runs:
         CONTRAST_RUNNER: ${{ inputs.runner }}
         # newline-separated KEY=VALUE pairs run.sh exports into the dev
         # shell so the captured metro bundle bakes in runtime keys
-        # (Clerk PK, API base, etc.) for a sootsim-friendly staging
+        # (Clerk PK, API base, etc.) for a staging
         # instance. fixes "Auth failed to initialize" by letting the
         # bundle ship a Clerk key whose allowed-origins include
         # sootsim.com. plans/preview-share-bug-tracker.md #B1.
@@ -321,3 +338,4 @@ runs:
         path: ${{ github.workspace }}/.contrast-agent-logs/
         retention-days: 7
         if-no-files-found: ignore
+        include-hidden-files: true
