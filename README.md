@@ -59,6 +59,11 @@ By default the action detects your package manager from the lockfile /
 Override with `package-manager:` (`npm` \| `yarn` \| `pnpm` \| `bun`), or set a
 custom `install:` command for monorepos.
 
+For npm, Yarn, and pnpm, the action saves the manager cache immediately after a
+successful install. A later preview/build failure keeps that cache for the next
+run; a failed install does not save it. Bun continues without this cache, and
+`none` continues to skip toolchain setup and installation.
+
 **Bring your own setup.** If your workflow already checks out, sets up Node, and
 installs deps (e.g. a repo `./.github/actions/setup` composite), run it *before*
 this action and pass `package-manager: none` so this action skips straight to the

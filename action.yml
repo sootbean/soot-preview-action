@@ -163,13 +163,34 @@ runs:
             ;;
         esac
         # actions/setup-node only caches npm | yarn | pnpm; bun/none get no cache.
+        cache_lockfile=""
         case "$pm" in
-          npm|yarn|pnpm) cache="$pm" ;;
-          *) cache="" ;;
+          npm)
+            cache=npm
+            for candidate in package-lock.json npm-shrinkwrap.json yarn.lock; do
+              if [ -f "$candidate" ]; then
+                cache_lockfile="$candidate"
+                break
+              fi
+            done
+            ;;
+          yarn)
+            cache=yarn
+            cache_lockfile=yarn.lock
+            ;;
+          pnpm)
+            cache=pnpm
+            cache_lockfile=pnpm-lock.yaml
+            ;;
+          *)
+            cache=""
+            cache_lockfile=""
+            ;;
         esac
         {
           echo "pm=$pm"
           echo "node_cache=$cache"
+          echo "node_cache_lockfile=$cache_lockfile"
         } >> "$GITHUB_OUTPUT"
         echo "[contrast] package manager: $pm (node cache: ${cache:-none})"
 
@@ -190,8 +211,45 @@ runs:
         node-version: ${{ inputs.node-version }}
         cache: ${{ steps.pm.outputs.node_cache }}
 
+    - name: Resolve package cache path
+      if: inputs.phase != 'wait' && steps.pm.outputs.node_cache != ''
+      id: node-cache
+      shell: bash
+      env:
+        CONTRAST_NODE_CACHE_MANAGER: ${{ steps.pm.outputs.node_cache }}
+        CONTRAST_NODE_CACHE_LOCKFILE_HASH: ${{ hashFiles(steps.pm.outputs.node_cache_lockfile) }}
+      run: |
+        set -euo pipefail
+        case "$CONTRAST_NODE_CACHE_MANAGER" in
+          npm) cache_path="$(npm config get cache)" ;;
+          yarn)
+            yarn_version="$(yarn --version)"
+            if [[ "$yarn_version" == 1.* ]]; then
+              cache_path="$(yarn cache dir)"
+            else
+              cache_path="$(yarn config get cacheFolder)"
+            fi
+            ;;
+          pnpm) cache_path="$(pnpm store path --silent)" ;;
+          *) echo "[contrast] unsupported cache manager '$CONTRAST_NODE_CACHE_MANAGER'" >&2; exit 2 ;;
+        esac
+        node_arch="$(node -p "require('node:os').arch()")"
+        delimiter="contrast-node-cache-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${RANDOM}"
+        while [[ "$cache_path" == *"$delimiter"* ]]; do
+          delimiter="${delimiter}x"
+        done
+        {
+          printf 'path<<%s\n' "$delimiter"
+          printf '%s\n' "$cache_path"
+          printf '%s\n' "$delimiter"
+          printf 'arch=%s\n' "$node_arch"
+        } >> "$GITHUB_OUTPUT"
+        # capture the setup-node key before a custom install can change its lockfile.
+        printf 'lockfile_hash=%s\n' "$CONTRAST_NODE_CACHE_LOCKFILE_HASH" >> "$GITHUB_OUTPUT"
+
     - name: Install dependencies
       if: inputs.phase != 'wait' && steps.pm.outputs.pm != 'none'
+      id: install
       shell: bash
       env:
         CONTRAST_PM: ${{ steps.pm.outputs.pm }}
@@ -217,6 +275,14 @@ runs:
           npm) npm ci ;;
           *) echo "[contrast] unsupported package manager '${CONTRAST_PM}'" >&2; exit 2 ;;
         esac
+
+    # save before the preview step; setup-node's post hook only runs after a successful job.
+    - name: Save package cache
+      if: steps.install.outcome == 'success' && steps.node-cache.outcome == 'success'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.node-cache.outputs.path }}
+        key: node-cache-${{ runner.os }}-${{ steps.node-cache.outputs.arch }}-${{ steps.pm.outputs.node_cache }}-${{ steps.node-cache.outputs.lockfile_hash }}
 
     - name: Contrast preview / build
       shell: bash
