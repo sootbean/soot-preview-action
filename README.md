@@ -4,14 +4,14 @@
   `bun scripts/ops/publish-preview-action.ts --push`. Edit here, not there.
 -->
 
-# sootbean/soot-preview-action
+# Contrast preview action
 
 GitHub Action that runs the [Contrast](https://contrast.dev) preview agent
 + branch-build pipeline for your repo. One job, ~15 lines of YAML.
 
-> **Requires a [Carbon plan](https://sootsim.com/docs/sootsim/plans).** PR
-> previews and branch builds run on Contrast's cloud; the paid plan is what
-> unlocks the automated preview/build flows and the hosted preview links.
+> **Requires a linked account with cloud access and available usage funds.**
+> See [Peach billing](https://peachsim.com/docs/peach/plans) for prepaid balance,
+> usage grants, and cloud features.
 
 ## Quick start
 
@@ -43,6 +43,14 @@ That's it. The action auto-detects your package manager, installs deps, boots
 your dev stack in the background, dispatches to the right pipeline based on the
 event type, and reports back to the Contrast cloud.
 
+## Preview access
+
+PR previews default to unlisted, including for private GitHub repositories.
+Anyone with the preview URL can open the app and recording without signing
+in to peach. The preview share menu shows **Public link** enabled; an
+authorized owner can turn it off to require account or repository access.
+GitHub repository privacy does not make the preview link private.
+
 ## Package manager
 
 By default the action detects your package manager from the lockfile /
@@ -58,6 +66,11 @@ By default the action detects your package manager from the lockfile /
 
 Override with `package-manager:` (`npm` \| `yarn` \| `pnpm` \| `bun`), or set a
 custom `install:` command for monorepos.
+
+For npm, Yarn, and pnpm, the action saves the manager cache immediately after a
+successful install. A later preview/build failure keeps that cache for the next
+run; a failed install does not save it. Bun continues without this cache, and
+`none` continues to skip toolchain setup and installation.
 
 **Bring your own setup.** If your workflow already checks out, sets up Node, and
 installs deps (e.g. a repo `./.github/actions/setup` composite), run it *before*
@@ -93,9 +106,10 @@ preview/build:
 | `pnpm-version` | _empty_ | pnpm version (only when the resolved manager is pnpm). Empty reads from `packageManager`. |
 | `mode` | `auto` | `auto` (dispatch by event) \| `preview` \| `build`. |
 | `platform` | _empty_ | When `mode=build`, the single platform (`ios`/`android`). Wire to a matrix for parallelism. |
+| `pr_number` | _empty_ | PR number to preview on events without PR context (e.g. `workflow_dispatch` re-runs: `${{ inputs.pr_number }}`). Ignored when the event already carries a PR. |
 | `maestro` | _empty_ | Maestro flow paths, or `auto` to run every `.maestro/*.yaml`. Each flow runs in rnx against the PR's bundle and uploads its own replayable preview, listed in the sticky comment's Tests table and the "Contrast Tests" check run. |
 | `maestro-on` | `pull_request` | Which events run maestro flows: CSV of `pull_request,push:main,push:staging`. |
-| `runner` | `local` | `local` runs everything on this workflow's runner. `hosted` keeps this runner serving the dev stack through a token-gated tunnel while a Contrast GPU recorder drives and records it — dramatically smoother videos than a CPU-only CI runner. Requires the Carbon plan. |
+| `runner` | `local` | `local` runs everything on this workflow's runner. `hosted` keeps this runner serving the dev stack through a token-gated tunnel while a Contrast GPU recorder drives and records it — dramatically smoother videos than a CPU-only CI runner. Requires cloud access and available usage funds. |
 | `build-env` | _empty_ | Newline-separated `KEY=VALUE` pairs baked into the captured bundle (e.g. `EXPO_PUBLIC_*` / Clerk keys). Source from `${{ secrets.* }}`. |
 | `origin` | `https://contrast.dev` | Override the Contrast cloud origin. |
 
@@ -141,12 +155,12 @@ branch, SHA, PR number, run id, install token. No repo variables needed.
 
 ## Prerequisites
 
-1. Install the **[Contrast GitHub App](https://github.com/apps/contrast-sootsim)** and
+1. Install the **[Peach GitHub App](https://peachsim.com/api/github/app/install)** and
    select the repo. GitHub returns you to Contrast, where signing in connects
    the repo to your account and opens a bootstrap PR with this workflow. This
    README is for repos that want to write the workflow by hand, or that granted
    the app every repository (no PR is opened in that case).
-2. Be on the [Carbon plan](https://sootsim.com/docs/sootsim/plans).
+2. Have [cloud access and available usage funds](https://peachsim.com/docs/peach/plans).
 
 ## Source
 
