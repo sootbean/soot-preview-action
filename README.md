@@ -4,9 +4,9 @@
   `bun scripts/ops/publish-preview-action.ts --push`. Edit here, not there.
 -->
 
-# Contrast preview action
+# Peach preview action
 
-GitHub Action that runs the [Contrast](https://contrast.dev) preview agent
+GitHub Action that runs the [Peach](https://peachsim.com) preview agent
 + branch-build pipeline for your repo. One job, ~15 lines of YAML.
 
 > **Requires a linked account with cloud access and available usage funds.**
@@ -16,7 +16,7 @@ GitHub Action that runs the [Contrast](https://contrast.dev) preview agent
 ## Quick start
 
 ```yaml
-name: Contrast
+name: Peach
 on:
   push:
     branches: [main]
@@ -28,7 +28,7 @@ permissions:
   issues: write
   actions: read
 jobs:
-  contrast:
+  peach:
     if: ${{ github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -41,7 +41,7 @@ jobs:
 
 That's it. The action auto-detects your package manager, installs deps, boots
 your dev stack in the background, dispatches to the right pipeline based on the
-event type, and reports back to the Contrast cloud.
+event type, and reports back to the Peach cloud.
 
 ## Preview access
 
@@ -107,11 +107,11 @@ preview/build:
 | `mode` | `auto` | `auto` (dispatch by event) \| `preview` \| `build`. |
 | `platform` | _empty_ | When `mode=build`, the single platform (`ios`/`android`). Wire to a matrix for parallelism. |
 | `pr_number` | _empty_ | PR number to preview on events without PR context (e.g. `workflow_dispatch` re-runs: `${{ inputs.pr_number }}`). Ignored when the event already carries a PR. |
-| `maestro` | _empty_ | Maestro flow paths, or `auto` to run every `.maestro/*.yaml`. Each flow runs in rnx against the PR's bundle and uploads its own replayable preview, listed in the sticky comment's Tests table and the "Contrast Tests" check run. |
+| `maestro` | _empty_ | Maestro flow paths, or `auto` to run every `.maestro/*.yaml`. Each flow runs in rnx against the PR's bundle and uploads its own replayable preview, listed in the sticky comment's Tests table and the "Peach Tests" check run. |
 | `maestro-on` | `pull_request` | Which events run maestro flows: CSV of `pull_request,push:main,push:staging`. |
-| `runner` | `local` | `local` runs everything on this workflow's runner. `hosted` keeps this runner serving the dev stack through a token-gated tunnel while a Contrast GPU recorder drives and records it — dramatically smoother videos than a CPU-only CI runner. Requires cloud access and available usage funds. |
+| `runner` | `local` | `local` runs everything on this workflow's runner. `hosted` keeps this runner serving the dev stack through a token-gated tunnel while a Peach GPU recorder drives and records it — dramatically smoother videos than a CPU-only CI runner. Requires cloud access and available usage funds. |
 | `build-env` | _empty_ | Newline-separated `KEY=VALUE` pairs baked into the captured bundle (e.g. `EXPO_PUBLIC_*` / Clerk keys). Source from `${{ secrets.* }}`. |
-| `origin` | `https://contrast.dev` | Override the Contrast cloud origin. |
+| `origin` | `https://contrast.dev` | Override the Peach cloud origin. |
 
 ## Run alongside other job steps
 
@@ -156,7 +156,7 @@ branch, SHA, PR number, run id, install token. No repo variables needed.
 ## Prerequisites
 
 1. Install the **[Peach GitHub App](https://peachsim.com/api/github/app/install)** and
-   select the repo. GitHub returns you to Contrast, where signing in connects
+   select the repo. GitHub returns you to Peach, where signing in connects
    the repo to your account and opens a bootstrap PR with this workflow. This
    README is for repos that want to write the workflow by hand, or that granted
    the app every repository (no PR is opened in that case).
@@ -167,3 +167,11 @@ branch, SHA, PR number, run id, install token. No repo variables needed.
 The action's source of truth lives in the private `sootbean/soot` monorepo at
 `actions/contrast-preview/action.yml` and is mirrored here. Issues and feature
 requests welcome.
+
+## Failure checks
+
+The action returns a nonzero exit when a preview fails. Leave `continue-on-error`
+absent on both the action step and its job so the workflow reports that failure.
+The Peach Preview check reports failure independently; Peach Tests reports the
+Maestro results. Existing workflows with `continue-on-error: true` must remove
+it to make their workflow conclusion reflect the action exit.

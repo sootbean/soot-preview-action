@@ -1,6 +1,6 @@
-name: Contrast
-description: 'Contrast PR previews + branch builds for this repo. Auto-dispatches based on the event, or set `mode` to `preview` or `build` to invoke a specific role.'
-author: Contrast
+name: Peach
+description: 'Peach PR previews + branch builds for this repo. Auto-dispatches based on the event, or set `mode` to `preview` or `build` to invoke a specific role.'
+author: Peach
 
 # usage:
 #
@@ -87,7 +87,7 @@ inputs:
     required: false
     default: ''
   origin:
-    description: Override the Contrast cloud origin (defaults to https://contrast.dev).
+    description: Override the Peach cloud origin (defaults to https://contrast.dev).
     required: false
     default: 'https://contrast.dev'
   mode:
@@ -115,7 +115,7 @@ inputs:
     default: 'pull_request'
   runner:
     description: |
-      Where the preview recording executes: `local` (default; the contrastbot agent, rnx, and the recording all run on this workflow's runner) or `hosted` (this runner only serves the dev stack through a token-gated tunnel; a Contrast GPU recorder drives and records it, producing dramatically smoother videos than a CPU-only CI runner). `hosted` requires cloud access and available usage funds.
+      Where the preview recording executes: `local` (default; the contrastbot agent, rnx, and the recording all run on this workflow's runner) or `hosted` (this runner only serves the dev stack through a token-gated tunnel; a Peach GPU recorder drives and records it, producing dramatically smoother videos than a CPU-only CI runner). `hosted` requires cloud access and available usage funds.
     required: false
     default: 'local'
   build-env:
@@ -153,16 +153,16 @@ runs:
           elif [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then pm=npm
           elif [ -f bunfig.toml ] || grep -Eq '"(@types/bun|bun-types|trustedDependencies)"[[:space:]]*:' package.json 2>/dev/null; then pm=bun
           else
-            echo "::error title=Contrast could not detect a package manager::Commit a lockfile or package.json packageManager field, or set package-manager to npm, yarn, pnpm, or bun."
-            echo "[contrast] package-manager auto found no lockfile, package.json packageManager field, or Bun project marker. Commit one of those signals or set package-manager explicitly." >&2
+            echo "::error title=Peach could not detect a package manager::Commit a lockfile or package.json packageManager field, or set package-manager to npm, yarn, pnpm, or bun."
+            echo "[peach] package-manager auto found no lockfile, package.json packageManager field, or Bun project marker. Commit one of those signals or set package-manager explicitly." >&2
             exit 2
           fi
         fi
         case "$pm" in
           npm|yarn|pnpm|bun|none) ;;
           *)
-            echo "::error title=Contrast package manager is invalid::Set package-manager to auto, npm, yarn, pnpm, bun, or none."
-            echo "[contrast] unsupported package-manager '$pm'; expected auto, npm, yarn, pnpm, bun, or none." >&2
+            echo "::error title=Peach package manager is invalid::Set package-manager to auto, npm, yarn, pnpm, bun, or none."
+            echo "[peach] unsupported package-manager '$pm'; expected auto, npm, yarn, pnpm, bun, or none." >&2
             exit 2
             ;;
         esac
@@ -196,7 +196,7 @@ runs:
           echo "node_cache=$cache"
           echo "node_cache_lockfile=$cache_lockfile"
         } >> "$GITHUB_OUTPUT"
-        echo "[contrast] package manager: $pm (node cache: ${cache:-none})"
+        echo "[peach] package manager: $pm (node cache: ${cache:-none})"
 
     - name: Set up pnpm
       if: inputs.phase != 'wait' && steps.pm.outputs.pm == 'pnpm'
@@ -235,7 +235,7 @@ runs:
             fi
             ;;
           pnpm) cache_path="$(pnpm store path --silent)" ;;
-          *) echo "[contrast] unsupported cache manager '$CONTRAST_NODE_CACHE_MANAGER'" >&2; exit 2 ;;
+          *) echo "[peach] unsupported cache manager '$CONTRAST_NODE_CACHE_MANAGER'" >&2; exit 2 ;;
         esac
         node_arch="$(node -p "require('node:os').arch()")"
         delimiter="contrast-node-cache-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${RANDOM}"
@@ -261,7 +261,7 @@ runs:
       run: |
         set -euo pipefail
         if [ -n "${CONTRAST_INSTALL_OVERRIDE}" ]; then
-          echo "[contrast] install (override): ${CONTRAST_INSTALL_OVERRIDE}"
+          echo "[peach] install (override): ${CONTRAST_INSTALL_OVERRIDE}"
           eval "${CONTRAST_INSTALL_OVERRIDE}"
           exit 0
         fi
@@ -277,7 +277,7 @@ runs:
             ;;
           bun) bun install --frozen-lockfile ;;
           npm) npm ci ;;
-          *) echo "[contrast] unsupported package manager '${CONTRAST_PM}'" >&2; exit 2 ;;
+          *) echo "[peach] unsupported package manager '${CONTRAST_PM}'" >&2; exit 2 ;;
         esac
 
     # save before the preview step; setup-node's post hook only runs after a successful job.
@@ -288,7 +288,7 @@ runs:
         path: ${{ steps.node-cache.outputs.path }}
         key: node-cache-${{ runner.os }}-${{ steps.node-cache.outputs.arch }}-${{ steps.pm.outputs.node_cache }}-${{ steps.node-cache.outputs.lockfile_hash }}
 
-    - name: Contrast preview / build
+    - name: Peach preview / build
       shell: bash
       env:
         # the contrast runner reads everything from env. nothing here is secret
@@ -322,7 +322,7 @@ runs:
         CONTRAST_MAESTRO_FLOWS: ${{ inputs.maestro }}
         CONTRAST_MAESTRO_ON: ${{ inputs.maestro-on }}
         # runner: hosted → this job serves the dev stack through a
-        # token-gated tunnel and a Contrast GPU recorder drives + records
+        # token-gated tunnel and a Peach GPU recorder drives + records
         # (mode 2). the recorder posts the sticky comment / check runs from
         # its own run of the same script.
         CONTRAST_RUNNER: ${{ inputs.runner }}
@@ -340,7 +340,7 @@ runs:
         phase="${CONTRAST_ACTION_PHASE:-run}"
         case "$phase" in
           run|start|wait) ;;
-          *) echo "[contrast] phase must be run, start, or wait (got '$phase')" >&2; exit 2 ;;
+          *) echo "[peach] phase must be run, start, or wait (got '$phase')" >&2; exit 2 ;;
         esac
 
         platform="${CONTRAST_PLATFORM:-all}"
@@ -370,10 +370,10 @@ runs:
             mv "$3.tmp" "$3"
           ' _ "$runner_script" "$log_file" "$status_file" </dev/null >/dev/null 2>&1 &
           printf '%s\n' "$!" > "$pid_file"
-          echo "[contrast] started runner pid $!"
+          echo "[peach] started runner pid $!"
           if [ "$phase" = start ]; then exit 0; fi
         elif [ ! -f "$pid_file" ]; then
-          echo "[contrast] no matching phase:start invocation for this run" >&2
+          echo "[peach] no matching phase:start invocation for this run" >&2
           exit 1
         fi
 
@@ -384,7 +384,7 @@ runs:
             # to become visible before treating a missing status as a crash.
             sleep 1
             if [ ! -f "$status_file" ]; then
-              echo "[contrast] background runner exited without a status" >&2
+              echo "[peach] background runner exited without a status" >&2
               [ ! -f "$log_file" ] || cat "$log_file"
               exit 1
             fi
@@ -400,7 +400,7 @@ runs:
     # sticky comment can't carry enough context. retention is short because
     # the data is dense (every probe's stdout/stderr) and only matters for
     # the immediate post-mortem.
-    - name: Upload Contrast agent diagnostics
+    - name: Upload Peach agent diagnostics
       if: always() && inputs.phase != 'start'
       uses: actions/upload-artifact@v4
       with:
