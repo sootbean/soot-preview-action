@@ -100,7 +100,7 @@ inputs:
     required: false
     default: ''
   pr_number:
-    description: 'PR number to preview on events without PR context (e.g. `workflow_dispatch` re-runs: `${{ inputs.pr_number }}`). Ignored when the event already carries a PR.'
+    description: 'PR number to preview on events without PR context (e.g. `workflow_dispatch` re-runs, which pass their own `pr_number` input). Ignored when the event already carries a PR.'
     required: false
     default: ''
   maestro:
